@@ -5,4 +5,10 @@
 /Release/
 minix
 minix_unstrip
+libps.a
+libps.so
+libsps.so
+property_service
+property_service_unstrip
+sps
 

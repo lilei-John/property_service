@@ -13,20 +13,17 @@ GCC ?= $(NDK_CROSS_COMPILE)gcc
 STRIP ?= $(NDK_CROSS_COMPILE)strip
 
 
-#C_FLAGS := -D_GNU_SOURCE -Os -march=armv7-a 
-#C_FLAGS += -DPAGE_SIZE=4096 #from bionic/libc/kernel/arch-arm/asm/page.h
-#C_FLAGS += -DPATH_MAX=4096
-#C_FLAGS += -DHAVE_SCHED_H=1 -DHAVE_SYS_SOCKET_H=1 -DHAVE_STRLCPY=1 -DHAVE_DIRENT_D_TYPE=0
-#C_FLAGS += -Wshadow -Wwrite-strings -Wundef -Wstrict-prototypes -Wunused-function -Wno-format-security -Wdeclaration-after-statement -Wold-style-definition -fomit-frame-pointer -fno-strict-aliasing -ffunction-sections -fdata-sections  
 
+LIBS := -ldl -lpthread
 C_FLAGS := -O2 -march=armv7-a 
 C_FLAGS += -DHAVE_SCHED_H=1 -DHAVE_SYS_SOCKET_H=1 -DHAVE_DIRENT_D_TYPE=0
 #C_FLAGS += -Wshadow -Wwrite-strings -Wundef -Wstrict-prototypes -Wunused-function -Wno-format-security -Wdeclaration-after-statement -Wold-style-definition
-C_FLAGS += -fomit-frame-pointer -fno-strict-aliasing -ffunction-sections -fdata-sections
+C_FLAGS += -fomit-frame-pointer -fno-strict-aliasing -ffunction-sections -fdata-sections -fPIC -DPIC
 #C_FLAGS += --sysroot=$(NDK_SYSROOT)
 
 
 LDFLAGS := -static -Wl,--gc-sections 
+LIB_LDFLAGS := -O2 -Bdirect -Wl,--hash-style=gnu
 #LDFLAGS += --sysroot=$(NDK_SYSROOT) -DANDROID
 
 #    The features here that are not enabled may need to fix compile error if they are enabled
@@ -68,12 +65,33 @@ C_SRCS +=  $(libselinux_SRC_FILES) $(libselinux_HOST_FILES)
 C_FLAGS += -DMINIT_ENABLE_SELINUX=1 -DHOST	
 else
 C_SRCS +=  $(libselinux_DISABLED_FILES)
-endif	
+endif
+
+SPS_LIB_C_SRCS += \
+	core/libcutils/properties.c
+
+
+
+SPS_LIB_C_SRCS += \
+	bionic/libc/system_properties.c
+
+
+SPS_C_SRCS := \
+	core/toolbox.c \
+	core/setprop.c \
+	core/getprop.c \
+	core/init/dynarray.c
+	
 
 
 C_OBJS := $(patsubst %.c, %.c.o,  $(C_SRCS))
 S_OBJS := $(patsubst %.S, %.s.o,  $(S_SRCS))
 
+SPS_LIB_C_OBJS := $(patsubst %.c, %.c.o,  $(SPS_LIB_C_SRCS))
+SPS_LIB_S_OBJS := $(patsubst %.S, %.s.o,  $(SPS_LIB_S_SRCS))
+
+SPS_C_OBJS := $(patsubst %.c, %.c.o,  $(SPS_C_SRCS))
+SPS_S_OBJS := $(patsubst %.S, %.s.o,  $(SPS_S_SRCS))
 
 INCLUDES := -Icore/include
 INCLUDES += -Icore/init
@@ -82,21 +100,25 @@ INCLUDES += -Ibionic/libc/include
 
 
 
-.PHONY: clean ms_version
+.PHONY: clean
 
-all: minix
+all: property_service libsps.so sps
 
 
 clean:
 	@rm -Rf $(C_OBJS)
 	@rm -Rf $(S_OBJS)
-	@rm -Rf minix minix_unstrip
+	@rm -Rf $(SPS_LIB_C_OBJS)
+	@rm -Rf $(SPS_LIB_S_OBJS)
+	@rm -Rf $(SPS_C_OBJS)
+	@rm -Rf $(SPS_S_OBJS)
+	@rm -Rf property_service property_service_unstrip libsps.so libsps.a sps
 
-minix_unstrip: ms_version $(C_OBJS) $(S_OBJS)
-	$(GCC) $(LDFLAGS) -o minix_unstrip $(C_OBJS) $(S_OBJS)
+property_service_unstrip: $(C_OBJS) $(S_OBJS)
+	$(GCC) $(LDFLAGS) -o property_service_unstrip $(C_OBJS) $(S_OBJS)
 	
-minix: minix_unstrip
-	$(STRIP) -s -d --strip-unneeded minix_unstrip -o minix
+property_service: property_service_unstrip
+	$(STRIP) -s -d --strip-unneeded property_service_unstrip -o property_service
 
 %.c.o : %.c
 	@mkdir -p $(dir $@)
@@ -106,4 +128,13 @@ minix: minix_unstrip
 %.s.o : %.S
 	@mkdir -p $(dir $@)
 	@echo "AS $<"
-	@$(GCC) $(C_FLAGS) $(INCLUDES) -c $< -o $@	
+	@$(GCC) $(C_FLAGS) $(INCLUDES) -c $< -o $@
+
+libsps.so: $(SPS_LIB_C_OBJS)
+	@echo "LIB     $@"
+	@mkdir -p $(dir $@)
+	@$(GCC) -shared $(LIB_LDFLAGS) -o $@ $(SPS_LIB_C_OBJS) ${LIBS}
+	@$(AR) rcs libsps.a $(SPS_LIB_C_OBJS)
+sps: libsps.so $(SPS_C_OBJS) 
+	@echo "BIN     $@"
+	@$(GCC) $(SPS_LDFLAGS) -o $@ $(SPS_C_OBJS) -L./ ${LIBS} -lsps	
