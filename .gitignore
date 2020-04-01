@@ -1,0 +1,8 @@
+*.o
+.project
+.cproject
+.settings
+/Release/
+minix
+minix_unstrip
+
